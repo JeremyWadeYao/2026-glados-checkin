@@ -438,6 +438,27 @@ def telegram_push(token, chat_id, title, content):
         log(f"❌ Telegram 推送失败: {e}")
         return False
 
+def send_serverchan(sendkey, title, content):
+    """通过 Server酱 推送到微信"""
+    if not sendkey:
+        return False
+    try:
+        url = f"https://sctapi.ftqq.com/{sendkey}.send"
+        resp = requests.post(
+            url,
+            data={"title": title, "desp": content},
+            timeout=12,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("code") != 0:
+            raise RuntimeError(payload.get("message", f"code={payload.get('code')}"))
+        log("✅ Server酱 推送成功")
+        return True
+    except (requests.RequestException, ValueError, RuntimeError) as e:
+        log(f"❌ Server酱 推送失败: {e}")
+        return False
+        
 def main():
     log("🚀 2026 GLaDOS Checkin Starting...")
     cookies = get_cookies()
@@ -468,8 +489,7 @@ def main():
         g.get_status()
         g.get_points()
 
-        # 2.5 Auto exchange (issue #11): runs after check-in so the
-        # just-earned points count toward the threshold.
+        # 2.5 Auto exchange
         if exchange_plan:
             g.exchange_result = auto_exchange(g, exchange_plan)
             if not g.exchange_result.startswith("⏭️"):
@@ -477,8 +497,6 @@ def main():
 
         # 3. Log
         status_icon = "✅" if is_success else "❌"
-        # Actions logs are public in a public repository. Keep account details
-        # inside the private notification instead of exposing the email here.
         log(f"{status_icon} 账号 {i} | 积分: {g.points} | 天数: {g.left_days} | 结果: {msg}")
 
         if is_success:
@@ -487,44 +505,32 @@ def main():
         # 4. Result Formatting
         exchange_line = ""
         if exchange_plan:
-            exchange_line = f"""
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>自动兑换:</b> {html.escape(g.exchange_result)}</p>"""
-        results.append(f"""
-<div style="border:2px solid #333; padding:15px; margin-bottom:15px; border-radius:10px; background:#fff;">
-    <h3 style="margin:0 0 15px 0; color:#333; border-bottom:2px solid #333; padding-bottom:8px;">👤 {html.escape(str(g.email))}</h3>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>当前积分:</b> <span style="color:#e74c3c; font-size:22px; font-weight:bold;">{g.points}</span> <span style="color:#27ae60; font-weight:bold;">({g.points_change})</span></p>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>剩余天数:</b> <span style="font-weight:bold;">{g.left_days} 天</span></p>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>签到结果:</b> {html.escape(str(msg))}</p>{exchange_line}
-    <div style="margin-top:15px; padding:12px; background:#f0f0f0; border-radius:8px; border:1px solid #ccc;">
-        <p style="margin:0 0 8px 0; color:#333; font-weight:bold; font-size:15px;">🎁 兑换选项:</p>
-        <p style="margin:0; color:#000; font-size:14px; line-height:1.8;">
-{g.exchange_info}</p>
-    </div>
-</div>
-""")
+            exchange_line = f"自动兑换: {g.exchange_result}"
+
+        results.append(
+            f"👤 {g.email}\n"
+            f"当前积分: {g.points} ({g.points_change})\n"
+            f"剩余天数: {g.left_days} 天\n"
+            f"签到结果: {msg}\n"
+            f"{exchange_line}\n"
+            f"兑换选项:\n{g.exchange_info.replace('<br>', chr(10))}\n"
+            f"{'-' * 20}\n"
+        )
 
     # Push
     push_level = os.environ.get("PUSH_LEVEL", "fail_only").lower()
 
-    # Exchange outcomes (success or failure) are worth notifying even when
-    # PUSH_LEVEL=fail_only, otherwise an always-failing exchange stays silent.
     if push_level == "fail_only" and success_cnt == len(cookies) and exchange_events == 0:
         log("⏭️ 根据 PUSH_LEVEL=fail_only 设置，所有账号签到成功，跳过推送")
         return 0
 
-    ptoken = os.environ.get("PUSHPLUS_TOKEN")
-    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    
-    if ptoken or (tg_token and tg_chat_id):
+    sct_key = os.environ.get("SERVERCHAN_KEY")
+
+    if sct_key:
         title = f"GLaDOS签到: 成功{success_cnt}/{len(cookies)}"
         content = "".join(results)
-        content += f"<br><small>时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</small>"
-        
-        if ptoken:
-            pushplus(ptoken, title, content)
-        if tg_token and tg_chat_id:
-            telegram_push(tg_token, tg_chat_id, title, content)
+        content += f"\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        send_serverchan(sct_key, title, content)
 
     return 0 if success_cnt == len(cookies) else 1
 
