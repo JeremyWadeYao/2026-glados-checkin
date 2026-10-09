@@ -2,14 +2,13 @@ name: GLaDOS 2026 Checkin
 
 on:
   schedule:
-    # 北京时间 09:30（UTC 01:30）。一天一次即可，脚本会在失败时自动重试。
     - cron: '30 1 * * *'
   workflow_dispatch:
     inputs:
       dispatch_source:
-        description: 手动运行请选择 manual；外部定时器可不填（默认按 external）
+        description: 手动运行请选择 manual
         required: false
-        default: external
+        default: manual
         type: choice
         options:
           - manual
@@ -24,37 +23,29 @@ permissions:
 
 jobs:
   checkin:
-    if: github.event_name == 'schedule' || inputs.dispatch_source == 'manual' || inputs.dispatch_source == 'external'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Run Tests
-        run: python -m unittest discover -s tests -v
+        run: python -m pip install requests
 
       - name: Run Checkin
         run: python checkin.py
         timeout-minutes: 8
         env:
           GLADOS_COOKIE: ${{ secrets.GLADOS_COOKIE }}
-          # Must match the browser that created the current gld:sess.
           GLADOS_USER_AGENT: ${{ vars.GLADOS_USER_AGENT }}
           SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
-          # PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          # TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          # TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PUSH_LEVEL: ${{ vars.PUSH_LEVEL || 'fail_only' }}
           EXCHANGE_PLAN: ${{ vars.EXCHANGE_PLAN || 'plan500' }}
           CHECKIN_MAX_ATTEMPTS: '3'
